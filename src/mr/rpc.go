@@ -24,7 +24,6 @@ type ExampleReply struct {
 	Y int
 }
 
-// Task worker向coordinator获取task的结构体
 type Task struct {
 	TaskType   TaskType
 	TaskId     int

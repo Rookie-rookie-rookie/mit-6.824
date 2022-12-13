@@ -22,9 +22,8 @@ type Coordinator struct {
 	DistPhase         Phase
 	MapTaskChannel    chan *Task
 	ReduceTaskChannel chan *Task
-	//taskInfos         TaskMetaHolder
-	InfoMap map[int]*TaskInfo
-	files   []string
+	InfoMap           map[int]*TaskInfo
+	files             []string
 }
 
 type TaskInfo struct {
@@ -89,6 +88,25 @@ func (c *Coordinator) getTaskId() int {
 	res := c.TaskId
 	c.TaskId++
 	return res
+}
+
+func (c *Coordinator) MarkDone(checkTask *Task, reply *Task) error {
+	mu.Lock()
+	defer mu.Unlock()
+
+	switch checkTask.TaskType {
+	case MapTask:
+		{
+			info, ok := c.InfoMap[checkTask.TaskId]
+			if ok && info.state == Working {
+				info.state = Done
+				fmt.Println("the map task [", checkTask.TaskId, "] is done")
+			} else {
+				fmt.Println("the map task [", checkTask.TaskId, "] is alread done!")
+			}
+		}
+	}
+	return nil
 }
 
 // Your code here -- RPC handlers for the worker to call.
