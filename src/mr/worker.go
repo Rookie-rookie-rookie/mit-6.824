@@ -8,6 +8,7 @@ import (
 	"log"
 	"net/rpc"
 	"os"
+	"sort"
 	"strconv"
 	"time"
 )
@@ -17,6 +18,14 @@ type KeyValue struct {
 	Key   string
 	Value string
 }
+
+// for sorting by key.
+type SortedByKey []KeyValue
+
+// for sorting by key.
+func (a SortedByKey) Len() int           { return len(a) }
+func (a SortedByKey) Swap(i, j int)      { a[i], a[j] = a[j], a[i] }
+func (a SortedByKey) Less(i, j int) bool { return a[i].Key < a[j].Key }
 
 // use ihash(key) % NReduce to choose the reduce
 // task number for each KeyValue emitted by Map.
@@ -38,6 +47,22 @@ func Worker(mapf func(string, string) []KeyValue, reducef func(string, []string)
 				DoMapTask(mapf, &task)
 				fmt.Println("finish the map task [", task.TaskId, "]")
 				callDone(&task)
+			}
+		case ReduceTask:
+			{
+				fmt.Println("get a reduce task [", task.TaskId, "]")
+				DoReduceTask(reducef, &task)
+				fmt.Println("finish the reduce task [", task.TaskId, "]")
+				callDone(&task)
+			}
+		case WaittingTask:
+			{
+				time.Sleep(time.Second * 5)
+			}
+		case ExitTask:
+			{
+				fmt.Println("all the task done,time for exit")
+				working = false
 			}
 		}
 	}
@@ -117,8 +142,50 @@ func DoMapTask(mapf func(string, string) []KeyValue, task *Task) {
 	}
 }
 
-func DoReduceTask(reducef func(string, []string) string, task *Task) {
+func SortReduceFile(files []string) []KeyValue {
+	var kvs []KeyValue
+	for _, filepath := range files {
+		file, _ := os.Open(filepath)
+		dec := json.NewDecoder(file)
+		for {
+			var kv KeyValue
+			if err := dec.Decode(&kv); err != nil {
+				break
+			}
+			kvs = append(kvs, kv)
+		}
+		file.Close()
+	}
+	sort.Sort(SortedByKey(kvs))
+	return kvs
+}
 
+func DoReduceTask(reducef func(string, []string) string, task *Task) {
+	reduceNum := task.TaskId
+	intermediate := SortReduceFile(task.File)
+	dir, _ := os.Getwd()
+	tempFile, err := ioutil.TempFile(dir, "mr-tmp-*")
+	if err != nil {
+		log.Fatal("Failed to create temp file", err)
+	}
+	i := 0
+	for i < len(intermediate) {
+		j := i + 1
+		for j < len(intermediate) && intermediate[j].Key == intermediate[i].Key {
+			j++
+		}
+		values := []string{}
+		for k := i; k < j; k++ {
+			values = append(values, intermediate[k].Value)
+		}
+		output := reducef(intermediate[i].Key, values)
+		// this is the correct format for each line of Reduce output.
+		fmt.Fprintf(tempFile, "%v %v\n", intermediate[i].Key, output)
+		i = j
+	}
+	tempFile.Close()
+	name := fmt.Sprintf("mr-out-%d", reduceNum)
+	os.Rename(tempFile.Name(), name)
 }
 
 // send an RPC request to the coordinator, wait for the response.
