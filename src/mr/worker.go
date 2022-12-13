@@ -1,48 +1,48 @@
 package mr
 
-import "fmt"
-import "log"
-import "net/rpc"
-import "hash/fnv"
+import (
+	"fmt"
+	"hash/fnv"
+	"log"
+	"net/rpc"
+	"time"
+)
 
-
-//
 // Map functions return a slice of KeyValue.
-//
 type KeyValue struct {
 	Key   string
 	Value string
 }
 
-//
 // use ihash(key) % NReduce to choose the reduce
 // task number for each KeyValue emitted by Map.
-//
 func ihash(key string) int {
 	h := fnv.New32a()
 	h.Write([]byte(key))
 	return int(h.Sum32() & 0x7fffffff)
 }
 
+func Worker(mapf func(string, string) []KeyValue, reducef func(string, []string) string) {
 
-//
-// main/mrworker.go calls this function.
-//
-func Worker(mapf func(string, string) []KeyValue,
-	reducef func(string, []string) string) {
+	working := true
+	for working {
+		task := getTask()
+		switch task.TaskType {
+		case MapTask:
+			{
+				fmt.Print("get a map task")
+			}
+		}
+	}
 
-	// Your worker implementation here.
-
+	time.Sleep(time.Second)
 	// uncomment to send the Example RPC to the coordinator.
-	// CallExample()
 
 }
 
-//
 // example function to show how to make an RPC call to the coordinator.
 //
 // the RPC argument and reply types are defined in rpc.go.
-//
 func CallExample() {
 
 	// declare an argument structure.
@@ -61,11 +61,22 @@ func CallExample() {
 	fmt.Printf("reply.Y %v\n", reply.Y)
 }
 
-//
+func getTask() Task {
+	args := TaskArgs{}
+	reply := Task{}
+	ok := call("Coordinator.DistributeTask", &args, &reply)
+	if ok {
+		//fmt.Println("worker get ", reply.TaskType, "task :Id[", reply.TaskId, "]")
+	} else {
+		fmt.Printf("call failed!\n")
+	}
+	return reply
+
+}
+
 // send an RPC request to the coordinator, wait for the response.
 // usually returns true.
 // returns false if something goes wrong.
-//
 func call(rpcname string, args interface{}, reply interface{}) bool {
 	// c, err := rpc.DialHTTP("tcp", "127.0.0.1"+":1234")
 	sockname := coordinatorSock()
@@ -82,4 +93,20 @@ func call(rpcname string, args interface{}, reply interface{}) bool {
 
 	fmt.Println(err)
 	return false
+}
+
+// callDone Call RPC to mark the task as completed
+func callDone(f *Task) Task {
+
+	args := f
+	reply := Task{}
+	ok := call("Coordinator.MarkFinished", &args, &reply)
+
+	if ok {
+		//fmt.Println("worker finish :taskId[", args.TaskId, "]")
+	} else {
+		fmt.Printf("call failed!\n")
+	}
+	return reply
+
 }

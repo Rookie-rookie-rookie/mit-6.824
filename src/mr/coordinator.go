@@ -1,33 +1,107 @@
 package mr
 
-import "log"
-import "net"
-import "os"
-import "net/rpc"
-import "net/http"
+import (
+	"fmt"
+	"log"
+	"net"
+	"net/http"
+	"net/rpc"
+	"os"
+	"sync"
+	"time"
+)
 
+var (
+	mu sync.Mutex
+)
 
 type Coordinator struct {
 	// Your definitions here.
+	ReducerNum        int
+	TaskId            int
+	DistPhase         Phase
+	MapTaskChannel    chan *Task
+	ReduceTaskChannel chan *Task
+	//taskInfos         TaskMetaHolder
+	InfoMap map[int]*TaskInfo
+	files   []string
+}
 
+type TaskInfo struct {
+	state     State
+	StartTime time.Time
+	TaskAdr   *Task
+}
+
+func MakeCoordinator(files []string, nReduce int) *Coordinator {
+	c := Coordinator{
+		files:             files,
+		ReducerNum:        nReduce,
+		DistPhase:         MapPhase,
+		MapTaskChannel:    make(chan *Task, len(files)),
+		ReduceTaskChannel: make(chan *Task, nReduce),
+		InfoMap:           make(map[int]*TaskInfo, len(files)+nReduce),
+	}
+	c.initMapTasks(files)
+	c.server()
+	return &c
+}
+
+func (c *Coordinator) initMapTasks(files []string) {
+
+	for _, v := range files {
+		id := c.getTaskId()
+		task := Task{
+			TaskType:   MapTask,
+			TaskId:     id,
+			ReducerNum: c.ReducerNum,
+			File:       []string{v},
+		}
+		Info := TaskInfo{
+			state:   Waiting,
+			TaskAdr: &task,
+		}
+		c.InfoMap[Info.TaskAdr.TaskId] = &Info
+		c.MapTaskChannel <- &task
+	}
+}
+
+func (c *Coordinator) DistributeTask(args *TaskArgs, reply *Task) error {
+	mu.Lock()
+	defer mu.Unlock()
+	switch c.DistPhase {
+	case MapPhase:
+		{
+			if len(c.MapTaskChannel) > 0 {
+				*reply = *<-c.MapTaskChannel
+				fmt.Printf("poll-Map-taskid[ %d ]\n", reply.TaskId)
+			} else {
+				reply.TaskType = WaittingTask
+				return nil
+			}
+		}
+	}
+
+	return nil
+}
+
+func (c *Coordinator) getTaskId() int {
+	res := c.TaskId
+	c.TaskId++
+	return res
 }
 
 // Your code here -- RPC handlers for the worker to call.
 
-//
 // an example RPC handler.
 //
 // the RPC argument and reply types are defined in rpc.go.
-//
 func (c *Coordinator) Example(args *ExampleArgs, reply *ExampleReply) error {
 	reply.Y = args.X + 1
 	return nil
 }
 
-
-//
 // start a thread that listens for RPCs from worker.go
-//
 func (c *Coordinator) server() {
 	rpc.Register(c)
 	rpc.HandleHTTP()
@@ -41,30 +115,15 @@ func (c *Coordinator) server() {
 	go http.Serve(l, nil)
 }
 
-//
-// main/mrcoordinator.go calls Done() periodically to find out
-// if the entire job has finished.
-//
+// Done 主函数mr调用，如果所有task完成mr会通过此方法退出
 func (c *Coordinator) Done() bool {
-	ret := false
+	mu.Lock()
+	defer mu.Unlock()
+	if c.DistPhase == AllDone {
+		fmt.Printf("All tasks are finished,the coordinator will be exit! !")
+		return true
+	} else {
+		return false
+	}
 
-	// Your code here.
-
-
-	return ret
-}
-
-//
-// create a Coordinator.
-// main/mrcoordinator.go calls this function.
-// nReduce is the number of reduce tasks to use.
-//
-func MakeCoordinator(files []string, nReduce int) *Coordinator {
-	c := Coordinator{}
-
-	// Your code here.
-
-
-	c.server()
-	return &c
 }
