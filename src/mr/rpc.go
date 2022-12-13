@@ -24,44 +24,42 @@ type ExampleReply struct {
 	Y int
 }
 
-type TaskType int
-
+// Task worker向coordinator获取task的结构体
 type Task struct {
 	TaskType   TaskType
-	TaskID     int
-	MapNum     int
+	TaskId     int
 	ReducerNum int
-	FileName   string
+	File       []string
 }
 
-type TaskArgs struct {}
+type TaskArgs struct{}
+
+type TaskType int
 
 type Phase int
 
 type State int
 
-
 const (
-	Maping TaskType = iota
-	Reducing
-	Waiting
-	Exiting
+	MapTask TaskType = iota
+	ReduceTask
+	WaittingTask
+	ExitTask
 )
 
 const (
 	MapPhase Phase = iota
 	ReducePhase
-	AllDonePhase
+	AllDone
 )
 
 const (
-	MapState State = iota
-	WaitingState
-	DoneState
+	Working State = iota
+	Waiting
+	Done
 )
 
 // Add your RPC definitions here.
-
 
 // Cook up a unique-ish UNIX-domain socket name
 // in /var/tmp, for the coordinator.
