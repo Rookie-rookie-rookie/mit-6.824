@@ -1,7 +1,6 @@
 package mr
 
 import (
-	"fmt"
 	"io/ioutil"
 	"log"
 	"net"
@@ -46,6 +45,7 @@ func MakeCoordinator(files []string, nReduce int) *Coordinator {
 	}
 	c.initMapTasks(files)
 	c.server()
+	go c.crashMointer()
 	return &c
 }
 
@@ -60,7 +60,7 @@ func (c *Coordinator) initMapTasks(files []string) {
 			File:       []string{v},
 		}
 		Info := TaskInfo{
-			state:   Working,
+			state:   Waiting,
 			TaskAdr: &task,
 		}
 		c.InfoMap[Info.TaskAdr.TaskId] = &Info
@@ -88,7 +88,7 @@ func (c *Coordinator) initReduceTasks() {
 			File:     selectReduceFile(i),
 		}
 		info := TaskInfo{
-			state:   Working,
+			state:   Waiting,
 			TaskAdr: &task,
 		}
 		c.InfoMap[info.TaskAdr.TaskId] = &info
@@ -104,11 +104,14 @@ func (c *Coordinator) DistributeTask(args *TaskArgs, reply *Task) error {
 		{
 			if len(c.MapTaskChannel) > 0 {
 				*reply = *<-c.MapTaskChannel
-				fmt.Printf("distribute map taskid[ %d ]\n", reply.TaskId)
+				//fmt.Printf("distribute map taskid[ %d ]\n", reply.TaskId)
+				if !c.ChangeState(reply.TaskId) {
+					//fmt.Println("the map task is working")
+				}
 			} else {
 				reply.TaskType = WaittingTask
 				if c.CheckAllTaskDone() {
-					fmt.Println("all map tasks finished,begin to init reduce tasks")
+					//fmt.Println("all map tasks finished,begin to init reduce tasks")
 					c.DistPhase = ReducePhase
 					c.initReduceTasks()
 				}
@@ -119,11 +122,14 @@ func (c *Coordinator) DistributeTask(args *TaskArgs, reply *Task) error {
 		{
 			if len(c.ReduceTaskChannel) > 0 {
 				*reply = *<-c.ReduceTaskChannel
-				fmt.Println("distribute reduce task [", reply.TaskId, "]")
+				//fmt.Println("distribute reduce task [", reply.TaskId, "]")
+				if !c.ChangeState(reply.TaskId) {
+					//fmt.Println("the reduce task is working")
+				}
 			} else {
 				reply.TaskType = WaittingTask
 				if c.CheckAllTaskDone() {
-					fmt.Println("all reduce tasks finished")
+					//fmt.Println("all reduce tasks finished")
 					c.DistPhase = AllDone
 				}
 			}
@@ -131,7 +137,7 @@ func (c *Coordinator) DistributeTask(args *TaskArgs, reply *Task) error {
 		}
 	case AllDone:
 		{
-			fmt.Println("all the reduce tasks finished")
+			//fmt.Println("all the reduce tasks finished")
 			reply.TaskType = ExitTask
 		}
 	}
@@ -147,16 +153,16 @@ func (c *Coordinator) getTaskId() int {
 func (c *Coordinator) MarkDone(checkTask *Task, reply *Task) error {
 	mu.Lock()
 	defer mu.Unlock()
-	fmt.Println("mark")
+	//fmt.Println("mark")
 	switch checkTask.TaskType {
 	case MapTask:
 		{
 			info, ok := c.InfoMap[checkTask.TaskId]
 			if ok && info.state == Working {
 				info.state = Done
-				fmt.Println("the map task [", checkTask.TaskId, "] is done")
+				//fmt.Println("the map task [", checkTask.TaskId, "] is done")
 			} else {
-				fmt.Println("the map task [", checkTask.TaskId, "] is alread done!")
+				//fmt.Println("the map task [", checkTask.TaskId, "] is alread done!")
 			}
 		}
 	case ReduceTask:
@@ -164,9 +170,9 @@ func (c *Coordinator) MarkDone(checkTask *Task, reply *Task) error {
 			info, ok := c.InfoMap[checkTask.TaskId]
 			if ok && info.state == Working {
 				info.state = Done
-				fmt.Println("the reduce task [", checkTask.TaskId, "] is done")
+				//fmt.Println("the reduce task [", checkTask.TaskId, "] is done")
 			} else {
-				fmt.Println("the reduce task [", checkTask.TaskId, "] is alread done!")
+				//fmt.Println("the reduce task [", checkTask.TaskId, "] is alread done!")
 			}
 		}
 	}
@@ -195,10 +201,10 @@ func (c *Coordinator) CheckAllTaskDone() bool {
 			}
 		}
 	}
-	fmt.Println("mapDone:", mapDone)
-	fmt.Println("mapUnDone:", mapUnDone)
-	fmt.Println("reduceDone:", ReduceDone)
-	fmt.Println("reduceUnDone:", ReduceUnDone)
+	//fmt.Println("mapDone:", mapDone)
+	//fmt.Println("mapUnDone:", mapUnDone)
+	//fmt.Println("reduceDone:", ReduceDone)
+	//fmt.Println("reduceUnDone:", ReduceUnDone)
 
 	if (mapDone > 0 && mapUnDone == 0) && (ReduceDone == 0 && ReduceUnDone == 0) {
 		return true
@@ -206,6 +212,45 @@ func (c *Coordinator) CheckAllTaskDone() bool {
 		return true
 	} else {
 		return false
+	}
+}
+
+func (c *Coordinator) ChangeState(taskId int) bool {
+	info, ok := c.InfoMap[taskId]
+	if !ok || info.state != Waiting {
+		return false
+	}
+	info.state = Working
+	info.StartTime = time.Now()
+	return true
+}
+
+func (c *Coordinator) crashMointer() {
+	for true {
+		time.Sleep(time.Second * 2)
+		mu.Lock()
+		if c.DistPhase == AllDone {
+			mu.Unlock()
+			break
+		}
+		for _, info := range c.InfoMap {
+			if info.state == Working && time.Since(info.StartTime) > 9*time.Second {
+				//fmt.Println("the task must meet a crash")
+				switch info.TaskAdr.TaskType {
+				case MapTask:
+					{
+						info.TaskAdr.TaskType = WaittingTask
+						c.MapTaskChannel <- info.TaskAdr
+					}
+				case ReduceTask:
+					{
+						info.TaskAdr.TaskType = WaittingTask
+						c.ReduceTaskChannel <- info.TaskAdr
+					}
+				}
+			}
+		}
+		mu.Unlock()
 	}
 }
 
@@ -238,7 +283,7 @@ func (c *Coordinator) Done() bool {
 	mu.Lock()
 	defer mu.Unlock()
 	if c.DistPhase == AllDone {
-		fmt.Printf("All tasks are finished,the coordinator will be exit! !")
+		//fmt.Printf("All tasks are finished,the coordinator will be exit! !")
 		return true
 	} else {
 		return false

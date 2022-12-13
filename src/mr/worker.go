@@ -43,16 +43,16 @@ func Worker(mapf func(string, string) []KeyValue, reducef func(string, []string)
 		switch task.TaskType {
 		case MapTask:
 			{
-				fmt.Println("get a map task [", task.TaskId, "]")
+				//fmt.Println("get a map task [", task.TaskId, "]")
 				DoMapTask(mapf, &task)
-				fmt.Println("finish the map task [", task.TaskId, "]")
+				//fmt.Println("finish the map task [", task.TaskId, "]")
 				callDone(&task)
 			}
 		case ReduceTask:
 			{
-				fmt.Println("get a reduce task [", task.TaskId, "]")
+				//fmt.Println("get a reduce task [", task.TaskId, "]")
 				DoReduceTask(reducef, &task)
-				fmt.Println("finish the reduce task [", task.TaskId, "]")
+				//fmt.Println("finish the reduce task [", task.TaskId, "]")
 				callDone(&task)
 			}
 		case WaittingTask:
@@ -61,7 +61,7 @@ func Worker(mapf func(string, string) []KeyValue, reducef func(string, []string)
 			}
 		case ExitTask:
 			{
-				fmt.Println("all the task done,time for exit")
+				//fmt.Println("all the task done,time for exit")
 				working = false
 			}
 		}
@@ -90,7 +90,7 @@ func CallExample() {
 	call("Coordinator.Example", &args, &reply)
 
 	// reply.Y should be 100.
-	fmt.Printf("reply.Y %v\n", reply.Y)
+	//fmt.Printf("reply.Y %v\n", reply.Y)
 }
 
 func getTask() Task {
@@ -98,9 +98,9 @@ func getTask() Task {
 	reply := Task{}
 	ok := call("Coordinator.DistributeTask", &args, &reply)
 	if ok {
-		//fmt.Println("worker get ", reply.TaskType, "task :Id[", reply.TaskId, "]")
+		////fmt.Println("worker get ", reply.TaskType, "task :Id[", reply.TaskId, "]")
 	} else {
-		fmt.Printf("call failed!\n")
+		//fmt.Printf("call failed!\n")
 	}
 	return reply
 
@@ -205,7 +205,7 @@ func call(rpcname string, args interface{}, reply interface{}) bool {
 		return true
 	}
 
-	fmt.Println(err)
+	//fmt.Println(err)
 	return false
 }
 
@@ -217,9 +217,9 @@ func callDone(f *Task) Task {
 	ok := call("Coordinator.MarkDone", &args, &reply)
 
 	if ok {
-		//fmt.Println("worker finish :taskId[", args.TaskId, "]")
+		////fmt.Println("worker finish :taskId[", args.TaskId, "]")
 	} else {
-		fmt.Printf("call failed!\n")
+		//fmt.Printf("call failed!\n")
 	}
 	return reply
 
