@@ -19,8 +19,10 @@ package raft
 
 import (
 	//	"bytes"
+	"math/rand"
 	"sync"
 	"sync/atomic"
+	"time"
 
 	//	"6.824/labgob"
 	"6.824/labrpc"
@@ -59,6 +61,48 @@ type Raft struct {
 	// Look at the paper's Figure 2 for a description of what
 	// state a Raft server must maintain.
 
+	currentTerm int
+	votedFor    int
+	logs        []LogEntry
+
+	commitIndex int
+	lastApplied int
+
+	nextIndex  []int
+	matchIndex []int
+
+	applyChan chan ApplyMsg
+
+	status     Status
+	timeout    time.Duration
+	timeTicker *time.Ticker
+}
+
+type Status int
+
+const (
+	Follower Status = iota
+	Candidate
+	Leader
+)
+
+type LogEntry struct {
+	term    int
+	command int
+}
+
+type AppendEntryArgs struct {
+	term         int
+	leaderId     int
+	prevLogIndex int
+	pervLogTerm  int
+	entries      []LogEntry
+	leaderCommit int
+}
+
+type AppendEntryResult struct {
+	term    int
+	success bool
 }
 
 // return currentTerm and whether this server
@@ -127,12 +171,18 @@ func (rf *Raft) Snapshot(index int, snapshot []byte) {
 // field names must start with capital letters!
 type RequestVoteArgs struct {
 	// Your data here (2A, 2B).
+	term         int
+	candidateId  int
+	lastLogIndex int
+	lastLogTerm  int
 }
 
 // example RequestVote RPC reply structure.
 // field names must start with capital letters!
 type RequestVoteReply struct {
 	// Your data here (2A).
+	term        int
+	voteGranted bool
 }
 
 // example RequestVote RPC handler.
@@ -242,6 +292,22 @@ func Make(peers []*labrpc.ClientEnd, me int,
 	rf.me = me
 
 	// Your initialization code here (2A, 2B, 2C).
+
+	rf.applyChan = applyCh
+
+	rf.currentTerm = 0
+	rf.votedFor = -1
+	rf.logs = make([]LogEntry, 0)
+
+	rf.commitIndex = 0
+	rf.lastApplied = 0
+
+	rf.nextIndex = make([]int, len(peers))
+	rf.matchIndex = make([]int, len(peers))
+
+	rf.status = Follower
+	rf.timeout = time.Duration(150+rand.Intn(200)) * time.Millisecond
+	rf.timeTicker = time.NewTicker(rf.timeout)
 
 	// initialize from state persisted before a crash
 	rf.readPersist(persister.ReadRaftState())
